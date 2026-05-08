@@ -1,0 +1,261 @@
+﻿#include "experiments.h"
+#include "modes.h"
+#include "hash_table.h"
+
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <time.h>
+
+#ifdef _WIN32
+#include <windows.h>
+#include <sysinfoapi.h>
+#else
+#include <sys/sysinfo.h>
+#include <unistd.h>
+#endif
+
+/* ─────────────────────────────────────────────
+   Генерация случайных ключей
+───────────────────────────────────────────── */
+
+static char* rand_key(char* buf, int len) {
+    static const char alphabet[] = "abcdefghijklmnopqrstuvwxyz0123456789";
+    for (int i = 0; i < len - 1; i++)
+        buf[i] = alphabet[rand() % (sizeof(alphabet) - 1)];
+    buf[len - 1] = '\0';
+    return buf;
+}
+
+/* ─────────────────────────────────────────────
+   Замер времени (в миллисекундах) - кроссплатформенный
+───────────────────────────────────────────── */
+
+static double clock_ms(void) {
+#ifdef _WIN32
+    /* Windows: используем QueryPerformanceCounter */
+    static LARGE_INTEGER frequency;
+    static int init = 0;
+    if (!init) {
+        QueryPerformanceFrequency(&frequency);
+        init = 1;
+    }
+    LARGE_INTEGER count;
+    QueryPerformanceCounter(&count);
+    return (count.QuadPart * 1000.0) / frequency.QuadPart;
+#else
+    /* Linux/Unix: используем clock_gettime */
+    struct timespec ts;
+#ifdef _POSIX_MONOTONIC_CLOCK
+    clock_gettime(CLOCK_MONOTONIC, &ts);
+#else
+    clock_gettime(CLOCK_REALTIME, &ts);
+#endif
+    return ts.tv_sec * 1000.0 + ts.tv_nsec / 1e6;
+#endif
+}
+
+/* ─────────────────────────────────────────────
+   Один прогон эксперимента
+───────────────────────────────────────────── */
+
+static ExpResult run_one(int mode, unsigned int n, double lf) {
+    ExpResult res;
+
+    memset(&res, 0, sizeof(res));  /* обнуляем все поля */
+    res.n = n;
+
+    HTableConfig cfg = mode_config(mode);
+    cfg.load_factor = lf;
+    HTable* ht = ht_create(cfg);
+    if (!ht) {
+        fprintf(stderr, "Failed to create hash table\n");
+        return res;
+    }
+
+    /* Генерируем ключи ЗАРАНЕЕ (не учитывать в замере) */
+    char** keys = (char**)malloc(n * sizeof(char*));
+    if (!keys) return res;
+
+    char buf[32];
+    for (unsigned int i = 0; i < n; i++) {
+        rand_key(buf, 12);
+#ifdef _WIN32
+        keys[i] = _strdup(buf);  /* Windows использует _strdup */
+#else
+        keys[i] = strdup(buf);
+#endif
+    }
+
+    /* ── Вставка ── */
+    ht_reset_stats(ht);
+    double t0 = clock_ms();
+    for (unsigned int i = 0; i < n; i++) {
+        if (cfg.value_type == VALUE_STRING)
+            ht_put(ht, keys[i], "val", 0);
+        else
+            ht_put(ht, keys[i], NULL, (int)i);
+    }
+    double t1 = clock_ms();
+    res.insert_time_ms = t1 - t0;
+    res.collisions = ht->collisions;
+    res.resizes = ht->resizes;
+    res.final_load = ht_load(ht);
+
+    /* ── Среднее время get (100 случайных) ── */
+    unsigned int sample = (n < 100) ? n : 100;
+    double get_total = 0.0;
+    for (unsigned int i = 0; i < sample; i++) {
+        unsigned int idx = (unsigned int)(rand() % n);
+        double g0 = clock_ms();
+        ht_get(ht, keys[idx], NULL, NULL);
+        double g1 = clock_ms();
+        get_total += g1 - g0;
+    }
+    res.avg_get_ms = get_total / sample;
+
+    for (unsigned int i = 0; i < n; i++) free(keys[i]);
+    free(keys);
+    ht_destroy(ht);
+    return res;
+}
+
+/* ─────────────────────────────────────────────
+   Серия экспериментов
+───────────────────────────────────────────── */
+
+void run_experiments(int mode) {
+    printf("\n========================================\n");
+    printf("Experiments for %s\n", mode_name(mode));
+    printf("load_factor = %.2f\n", mode_recommended_lf(mode));
+    printf("========================================\n");
+
+    unsigned int sizes[] = { 100, 1000, 1000000, 10000000 };
+    int cnt = (int)(sizeof(sizes) / sizeof(sizes[0]));
+
+    /* Шапка таблицы */
+    printf("%-12s | %-14s | %-14s | %-12s | %-8s | %-8s\n",
+        "N", "Insert(ms)", "AvgGet(ms)", "Collisions", "Resizes", "Load");
+    printf("------------------------------------------------------------------------\n");
+
+    for (int i = 0; i < cnt; i++) {
+        /* Для больших N пропускаем если памяти мало */
+        ExpResult r = run_one(mode, sizes[i], mode_recommended_lf(mode));
+        printf("%-12u | %-14.4f | %-14.6f | %-12llu | %-8llu | %-8.3f\n",
+            r.n, r.insert_time_ms, r.avg_get_ms,
+            (unsigned long long)r.collisions,
+            (unsigned long long)r.resizes,
+            r.final_load);
+    }
+}
+
+/* ─────────────────────────────────────────────
+   Подбор оптимального load_factor
+───────────────────────────────────────────── */
+
+void find_optimal_load_factor(int mode, double step) {
+    unsigned int n = 10000;
+    printf("\n== Optimal load_factor search for mode %d (n=%u, step=%.2f) ==\n",
+        mode, n, step);
+    printf("%-6s | %-10s | %-12s | %-8s | %-8s\n",
+        "LF", "Insert(ms)", "Collisions", "Resizes", "AvgGet(ms)");
+    printf("-----------------------------------------------------\n");
+
+    double best_score = 1e18;
+    double best_lf = 0.75;
+
+    for (double lf = 0.1; lf <= 0.95; lf += step) {
+        ExpResult r = run_one(mode, n, lf);
+        /* Эвристическая оценка: время + штраф за коллизии */
+        double score = r.insert_time_ms + r.collisions * 0.001 + r.avg_get_ms * 100;
+        if (score < best_score) {
+            best_score = score;
+            best_lf = lf;
+        }
+        printf("%-6.2f | %-10.4f | %-12llu | %-8llu | %-8.6f\n",
+            lf, r.insert_time_ms,
+            (unsigned long long)r.collisions,
+            (unsigned long long)r.resizes,
+            r.avg_get_ms);
+    }
+    printf("\n=> Recommended load_factor = %.2f (score=%.2f)\n", best_lf, best_score);
+}
+
+/* ─────────────────────────────────────────────
+   Доп. задание 2 — автоматический load_factor
+   на основе аппаратных характеристик (упрощённо)
+───────────────────────────────────────────── */
+
+double auto_load_factor(void) {
+    unsigned long total_mb = 1024; /* значение по умолчанию */
+
+#ifdef _WIN32
+    /* Windows: используем GlobalMemoryStatusEx */
+    MEMORYSTATUSEX memInfo;
+    memInfo.dwLength = sizeof(MEMORYSTATUSEX);
+    if (GlobalMemoryStatusEx(&memInfo)) {
+        total_mb = (unsigned long)(memInfo.ullTotalPhys / (1024 * 1024));
+    }
+#else
+    /* Linux/Unix: используем sysconf */
+    long pages = sysconf(_SC_PHYS_PAGES);
+    long page_size = sysconf(_SC_PAGE_SIZE);
+    if (pages > 0 && page_size > 0) {
+        total_mb = (unsigned long)((pages * page_size) / (1024 * 1024));
+    }
+#endif
+
+    /*
+     * Логика:
+     *  < 512 MB  → экономим память, маленький LF → 0.50
+     *  512–2048  → стандарт                      → 0.65
+     *  2048–8192 → много памяти, можно 0.75
+     *  > 8192 MB → очень много, 0.85
+     */
+    double lf;
+    if (total_mb < 512)   lf = 0.50;
+    else if (total_mb < 2048)  lf = 0.65;
+    else if (total_mb < 8192)  lf = 0.75;
+    else                       lf = 0.85;
+
+    return lf;
+}
+
+void print_hw_info(void) {
+    printf("=== Hardware info ===\n");
+
+#ifdef _WIN32
+    MEMORYSTATUSEX memInfo;
+    memInfo.dwLength = sizeof(MEMORYSTATUSEX);
+    if (GlobalMemoryStatusEx(&memInfo)) {
+        unsigned long total_mb = (unsigned long)(memInfo.ullTotalPhys / (1024 * 1024));
+        unsigned long free_mb = (unsigned long)(memInfo.ullAvailPhys / (1024 * 1024));
+        printf("  Total RAM : %lu MB\n", total_mb);
+        printf("  Free  RAM : %lu MB\n", free_mb);
+    }
+    SYSTEM_INFO sysInfo;
+    GetSystemInfo(&sysInfo);
+    printf("  Processors: %u\n", sysInfo.dwNumberOfProcessors);
+#else
+    long pages = sysconf(_SC_PHYS_PAGES);
+    long page_size = sysconf(_SC_PAGE_SIZE);
+    if (pages > 0 && page_size > 0) {
+        unsigned long total_mb = (unsigned long)((pages * page_size) / (1024 * 1024));
+        printf("  Total RAM : %lu MB\n", total_mb);
+    }
+
+    long pages_free = sysconf(_SC_AVPHYS_PAGES);
+    if (pages_free > 0 && page_size > 0) {
+        unsigned long free_mb = (unsigned long)((pages_free * page_size) / (1024 * 1024));
+        printf("  Free  RAM : %lu MB\n", free_mb);
+    }
+
+    long nprocs = sysconf(_SC_NPROCESSORS_ONLN);
+    if (nprocs > 0) {
+        printf("  Processors: %ld\n", nprocs);
+    }
+#endif
+
+    printf("  Auto load_factor => %.2f\n", auto_load_factor());
+    printf("===============================\n");
+}
