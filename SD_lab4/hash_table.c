@@ -81,11 +81,6 @@ void ht_destroy(HTable* ht) {
     free(ht);
 }
 
-/* ─────────────────────────────────────────────
-   Расширение таблицы
-───────────────────────────────────────────── */
-
-/* Вставка без проверки load_factor (для rehash) */
 static void raw_put_chain(ChainNode** chains, unsigned int cap,
     HashFunc fn, const char* key,
     const char* str_val, int int_val) {
@@ -98,7 +93,7 @@ static void raw_put_chain(ChainNode** chains, unsigned int cap,
     chains[idx] = node;
 }
 
-static void raw_put_slot(Slot* slots, unsigned int cap, HashFunc fn, const char* key, const char* str_val, int int_val) {  // ← убран cm
+static void raw_put_slot(Slot* slots, unsigned int cap, HashFunc fn, const char* key, const char* str_val, int int_val) {     
     unsigned int base = fn(key, (unsigned int)strlen(key)) % cap;
     for (unsigned int i = 0; i < cap; i++) {
         unsigned int idx = (base + i) % cap;
@@ -154,21 +149,14 @@ static void ht_resize(HTable* ht) {
     }
 }
 
-/* ─────────────────────────────────────────────
-   PUT
-───────────────────────────────────────────── */
-
 int ht_put(HTable* ht, const char* key, const char* str_val, int int_val) {
-    /* Проверяем, не нужно ли расширить */
     double threshold = ht->capacity * ht->cfg.load_factor;
     if ((double)ht->size >= threshold)
         ht_resize(ht);
 
-    unsigned int base = bucket(ht, key);  // ← ВЫНЕСЛИ ОДИН РАЗ (было в цикле)
+    unsigned int base = bucket(ht, key);         
 
-    /* ── Chaining ── */
     if (ht->cfg.collision == COLLISION_CHAINING) {
-        // ... этот код не меняется
         ChainNode* node = ht->chains[base];
         int first = 1;
         while (node) {
@@ -194,16 +182,15 @@ int ht_put(HTable* ht, const char* key, const char* str_val, int int_val) {
         return 1;
     }
 
-    /* ── Open addressing (linear / quadratic) ── */
     int collision_counted = 0;
     int first_deleted = -1;
 
     for (unsigned int i = 0; i < ht->capacity; i++) {
         unsigned int idx;
         if (ht->cfg.collision == COLLISION_LINEAR_PROBE)
-            idx = (base + i) % ht->capacity;      // ← ИСПРАВЛЕНО: base + i
+            idx = (base + i) % ht->capacity;           
         else
-            idx = (base + i * i) % ht->capacity;  // ← ИСПРАВЛЕНО: base + i*i
+            idx = (base + i * i) % ht->capacity;       
 
         if (ht->slots[idx].state == SLOT_EMPTY) {
             if (!collision_counted && i > 0) ht->collisions++;
