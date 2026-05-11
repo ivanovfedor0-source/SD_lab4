@@ -51,11 +51,11 @@ HTableConfig mode_config(int mode) {
 
 const char* mode_name(int mode) {
     switch (mode) {
-    case 1: return "Mode 1: SDBMHash  + Chaining       + string/string (cap=8)";
-    case 2: return "Mode 2: djb2      + LinearProbe    + string/int    (cap=16)";
-    case 3: return "Mode 3: adler32   + LinearProbe    + string/string (cap=32)";
-    case 4: return "Mode 4 [extra]: FNV-1a    + QuadraticProbe + string/string (cap=16)";
-    case 5: return "Mode 5 [extra]: MurmurHash3 + Chaining      + string/int    (cap=8)";
+    case 1: return "Mode 1: SDBMHash + Chaining + string/string (cap=8)";
+    case 2: return "Mode 2: djb2 + LinearProbe + string/int (cap=16)";
+    case 3: return "Mode 3: adler32 + LinearProbe + string/string (cap=32)";
+    case 4: return "Mode 4 [extra]: FNV-1a + QuadraticProbe + string/string (cap=16)";
+    case 5: return "Mode 5 [extra]: MurmurHash3 + Chaining + string/int (cap=8)";
     }
     return "Unknown mode";
 }
@@ -70,10 +70,10 @@ const char* mode_name(int mode) {
  */
 double mode_recommended_lf(int mode) {
     switch (mode) {
-    case 1: return 0.75;  /* Chaining        */
-    case 2: return 0.65;  /* Linear probe    */
+    case 1: return 0.90;  /* Chaining        */
+    case 2: return 0.35;  /* Linear probe    */
     case 3: return 0.65;  /* Linear probe    */
-    case 4: return 0.50;  /* Quadratic probe */
+    case 4: return 0.65;  /* Quadratic probe */
     case 5: return 0.75;  /* Chaining        */
     }
     return 0.75;

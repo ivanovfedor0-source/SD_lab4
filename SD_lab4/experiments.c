@@ -149,6 +149,8 @@ void run_experiments(int mode) {
     }
 }
 
+
+
 /* ─────────────────────────────────────────────
    Подбор оптимального load_factor
 ───────────────────────────────────────────── */
@@ -157,66 +159,142 @@ void find_optimal_load_factor(int mode, double step) {
     unsigned int n = 10000;
     printf("\n== Optimal load_factor search for mode %d (n=%u, step=%.2f) ==\n",
         mode, n, step);
-    printf("%-6s | %-10s | %-12s | %-8s | %-8s\n",
-        "LF", "Insert(ms)", "Collisions", "Resizes", "AvgGet(ms)");
-    printf("-----------------------------------------------------\n");
+    printf("%-6s | %-10s | %-12s | %-8s | %-12s | %-10s | %-10s | %-10s\n",
+        "LF", "Insert(ms)", "Collisions", "Resizes", "AvgGet(ms)", "MemPenalty", "CollScore", "TotalScore");
+    printf("----------------------------------------------------------------------------------------------------------\n");
 
     double best_score = 1e18;
     double best_lf = 0.75;
 
     for (double lf = 0.1; lf <= 0.95; lf += step) {
         ExpResult r = run_one(mode, n, lf);
-        /* Эвристическая оценка: время + штраф за коллизии */
-        double score = r.insert_time_ms + r.collisions * 0.001 + r.avg_get_ms * 100;
+
+        double score;
+        double memory_cost;
+
+        if (mode == 1) {
+            /* ──────────────────────────────────────────────────────────
+               Режим 1: Chaining
+               Коллизии не страшны, главное - память и расширения
+               ────────────────────────────────────────────────────────── */
+            memory_cost = (1.0 / lf) * 25.0;
+            score = r.insert_time_ms +
+                r.resizes * 10.0 +
+                memory_cost;
+        }
+        else if (mode == 2 || mode == 3) {
+            /* ──────────────────────────────────────────────────────────
+               Режимы 2 и 3: Linear Probe
+               Коллизии страшны (кластеры), время поиска важно
+               ────────────────────────────────────────────────────────── */
+            memory_cost = (1.0 / lf) * 15.0;
+            score = r.insert_time_ms +
+                r.collisions * 0.02 +
+                r.resizes * 8.0 +
+                r.avg_get_ms * 500 +
+                memory_cost;
+        }
+        else {
+            /* Для других режимов */
+            memory_cost = (1.0 / lf) * 20.0;
+            score = r.insert_time_ms +
+                r.collisions * 0.01 +
+                r.resizes * 5.0 +
+                r.avg_get_ms * 200 +
+                memory_cost;
+        }
+
         if (score < best_score) {
             best_score = score;
             best_lf = lf;
         }
-        printf("%-6.2f | %-10.4f | %-12llu | %-8llu | %-8.6f\n",
+
+        printf("%-6.2f | %-10.4f | %-12llu | %-8llu | %-12.6f | %-12.2f | %-10.2f\n",
             lf, r.insert_time_ms,
             (unsigned long long)r.collisions,
             (unsigned long long)r.resizes,
-            r.avg_get_ms);
+            r.avg_get_ms,
+            memory_cost, score);
     }
-    printf("\n=> Recommended load_factor = %.2f (score=%.2f)\n", best_lf, best_score);
+
+    printf("\n");
+    printf("==========================================================================================================\n");
+    printf("=> Recommended load_factor = %.2f\n", best_lf);
+    printf("   Insert time: %.4f ms, Collisions: %.0f, Resizes: %.0f, AvgGet: %.6f ms\n",
+        mode, best_lf, best_score);
+    printf("   Score = %.2f\n", best_score);
+    printf("==========================================================================================================\n");
 }
 
-/* ─────────────────────────────────────────────
-   Доп. задание 2 — автоматический load_factor
-   на основе аппаратных характеристик (упрощённо)
-───────────────────────────────────────────── */
 
 double auto_load_factor(void) {
-    unsigned long total_mb = 1024; /* значение по умолчанию */
+    unsigned long total_mb = 1024;
+    long nprocs = 4;
 
 #ifdef _WIN32
-    /* Windows: используем GlobalMemoryStatusEx */
+
     MEMORYSTATUSEX memInfo;
     memInfo.dwLength = sizeof(MEMORYSTATUSEX);
     if (GlobalMemoryStatusEx(&memInfo)) {
         total_mb = (unsigned long)(memInfo.ullTotalPhys / (1024 * 1024));
     }
+
+
+    SYSTEM_INFO sysInfo;
+    GetSystemInfo(&sysInfo);
+    nprocs = (long)sysInfo.dwNumberOfProcessors;
 #else
-    /* Linux/Unix: используем sysconf */
+
     long pages = sysconf(_SC_PHYS_PAGES);
     long page_size = sysconf(_SC_PAGE_SIZE);
     if (pages > 0 && page_size > 0) {
         total_mb = (unsigned long)((pages * page_size) / (1024 * 1024));
     }
+
+    nprocs = sysconf(_SC_NPROCESSORS_ONLN);
+    if (nprocs <= 0) nprocs = 4;
 #endif
 
-    /*
-     * Логика:
-     *  < 512 MB  → экономим память, маленький LF → 0.50
-     *  512–2048  → стандарт                      → 0.65
-     *  2048–8192 → много памяти, можно 0.75
-     *  > 8192 MB → очень много, 0.85
-     */
-    double lf;
-    if (total_mb < 512)   lf = 0.50;
-    else if (total_mb < 2048)  lf = 0.65;
-    else if (total_mb < 8192)  lf = 0.75;
-    else                       lf = 0.85;
+    double lf = 0.75;
+
+    if (total_mb < 512) {
+        lf = 0.50; 
+    }
+    else if (total_mb < 2048) {
+        lf = 0.65; 
+    }
+    else if (total_mb > 8192) {
+        lf = 0.85; 
+    }
+    else {
+        lf = 0.75; 
+    }
+
+    if (nprocs >= 16) {
+        lf += 0.05;
+    }
+    else if (nprocs >= 8) {
+        lf += 0.03;
+    }
+    else if (nprocs <= 2) {
+        lf -= 0.05;
+    }
+    else if (nprocs <= 4) {
+        lf -= 0.02;
+    }
+
+    if (total_mb < 2048 && lf > 0.75) {
+        lf = 0.75;
+    }
+
+    if (total_mb > 8192 && lf < 0.75) {
+        lf = 0.75;
+    }
+
+    if (lf > 0.90) lf = 0.90;
+
+    printf("[Auto LF] RAM: %lu MB, CPU cores: %ld -> load_factor = %.2f\n",
+        total_mb, nprocs, lf);
 
     return lf;
 }

@@ -216,8 +216,14 @@ int main(void) {
 
         /* ── load ── */
         if (strcmp(line, "load") == 0) {
-            printf("load_factor = %.4f  (size=%u / capacity=%u)\n",
-                ht_load(ht), ht->size, ht->capacity);
+            double current_load = ht_load(ht);
+            double threshold_load = ht->cfg.load_factor;
+            unsigned int threshold_size = (unsigned int)(ht->capacity * threshold_load);
+
+            printf("Текущий load_factor = %.4f  (size=%u / capacity=%u)\n",
+                current_load, ht->size, ht->capacity);
+            printf("Предельный load_factor = %.4f  (расширение при size >= %u)\n",
+                threshold_load, threshold_size);
             continue;
         }
 
@@ -244,8 +250,12 @@ int main(void) {
         if (strncmp(line, "optlf", 5) == 0) {
             int m = cur_mode;
             if (strlen(line) > 6) m = atoi(line + 6);
-            if (m < 1 || m > MODE_COUNT) m = cur_mode;
-            find_optimal_load_factor(m, 0.05);
+            if (m < 1 || m > MODE_COUNT) {
+                printf("Режим должен быть от 1 до %d\n", MODE_COUNT);
+            }
+            else {
+                find_optimal_load_factor(m, 0.05);
+            }
             continue;
         }
 
