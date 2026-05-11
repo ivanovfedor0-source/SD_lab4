@@ -25,7 +25,6 @@ HTableConfig mode_config(int mode) {
         cfg.value_type = VALUE_STRING;
         cfg.init_capacity = 32;
         break;
-        /* ƒополнительные режимы */
     case 4:
         cfg.hash_fn = fnv1a;
         cfg.collision = COLLISION_QUADRATIC_PROBE;
@@ -39,7 +38,6 @@ HTableConfig mode_config(int mode) {
         cfg.init_capacity = 8;
         break;
     default:
-        /* Fallback Ч режим 1 */
         cfg.hash_fn = SDBMHash;
         cfg.collision = COLLISION_CHAINING;
         cfg.value_type = VALUE_STRING;
@@ -60,21 +58,13 @@ const char* mode_name(int mode) {
     return "Unknown mode";
 }
 
-/*
- * –екомендуемые load_factor Ч получены экспериментально:
- *
- * Chaining:         0.75  Ч хороший баланс между пам€тью и длиной цепочек
- * Linear probe:     0.65  Ч при >0.7 количество коллизий резко растЄт
- * Quadratic probe:  0.50  Ч квадратичный шаг может не обойти всю таблицу
- *                           при высокой заполненности (особенно не-2^n размер)
- */
 double mode_recommended_lf(int mode) {
     switch (mode) {
-    case 1: return 0.90;  /* Chaining        */
-    case 2: return 0.35;  /* Linear probe    */
-    case 3: return 0.65;  /* Linear probe    */
-    case 4: return 0.65;  /* Quadratic probe */
-    case 5: return 0.75;  /* Chaining        */
+    case 1: return 0.90;           
+    case 2: return 0.35;        
+    case 3: return 0.65;        
+    case 4: return 0.65;     
+    case 5: return 0.75;           
     }
     return 0.75;
 }

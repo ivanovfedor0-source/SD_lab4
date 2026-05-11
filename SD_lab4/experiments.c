@@ -15,10 +15,6 @@
 #include <unistd.h>
 #endif
 
-/* ─────────────────────────────────────────────
-   Генерация случайных ключей
-───────────────────────────────────────────── */
-
 static char* rand_key(char* buf, int len) {
     static const char alphabet[] = "abcdefghijklmnopqrstuvwxyz0123456789";
     for (int i = 0; i < len - 1; i++)
@@ -27,13 +23,8 @@ static char* rand_key(char* buf, int len) {
     return buf;
 }
 
-/* ─────────────────────────────────────────────
-   Замер времени (в миллисекундах) - кроссплатформенный
-───────────────────────────────────────────── */
-
 static double clock_ms(void) {
 #ifdef _WIN32
-    /* Windows: используем QueryPerformanceCounter */
     static LARGE_INTEGER frequency;
     static int init = 0;
     if (!init) {
@@ -44,7 +35,6 @@ static double clock_ms(void) {
     QueryPerformanceCounter(&count);
     return (count.QuadPart * 1000.0) / frequency.QuadPart;
 #else
-    /* Linux/Unix: используем clock_gettime */
     struct timespec ts;
 #ifdef _POSIX_MONOTONIC_CLOCK
     clock_gettime(CLOCK_MONOTONIC, &ts);
@@ -55,14 +45,10 @@ static double clock_ms(void) {
 #endif
 }
 
-/* ─────────────────────────────────────────────
-   Один прогон эксперимента
-───────────────────────────────────────────── */
-
 static ExpResult run_one(int mode, unsigned int n, double lf) {
     ExpResult res;
 
-    memset(&res, 0, sizeof(res));  /* обнуляем все поля */
+    memset(&res, 0, sizeof(res));
     res.n = n;
 
     HTableConfig cfg = mode_config(mode);
@@ -72,8 +58,6 @@ static ExpResult run_one(int mode, unsigned int n, double lf) {
         fprintf(stderr, "Failed to create hash table\n");
         return res;
     }
-
-    /* Генерируем ключи ЗАРАНЕЕ (не учитывать в замере) */
     char** keys = (char**)malloc(n * sizeof(char*));
     if (!keys) return res;
 
@@ -81,13 +65,11 @@ static ExpResult run_one(int mode, unsigned int n, double lf) {
     for (unsigned int i = 0; i < n; i++) {
         rand_key(buf, 12);
 #ifdef _WIN32
-        keys[i] = _strdup(buf);  /* Windows использует _strdup */
+        keys[i] = _strdup(buf);
 #else
         keys[i] = strdup(buf);
 #endif
     }
-
-    /* ── Вставка ── */
     ht_reset_stats(ht);
     double t0 = clock_ms();
     for (unsigned int i = 0; i < n; i++) {
@@ -101,8 +83,6 @@ static ExpResult run_one(int mode, unsigned int n, double lf) {
     res.collisions = ht->collisions;
     res.resizes = ht->resizes;
     res.final_load = ht_load(ht);
-
-    /* ── Среднее время get (100 случайных) ── */
     unsigned int sample = (n < 100) ? n : 100;
     double get_total = 0.0;
     for (unsigned int i = 0; i < sample; i++) {
@@ -120,10 +100,6 @@ static ExpResult run_one(int mode, unsigned int n, double lf) {
     return res;
 }
 
-/* ─────────────────────────────────────────────
-   Серия экспериментов
-───────────────────────────────────────────── */
-
 void run_experiments(int mode) {
     printf("\n========================================\n");
     printf("Experiments for %s\n", mode_name(mode));
@@ -133,13 +109,11 @@ void run_experiments(int mode) {
     unsigned int sizes[] = { 100, 1000, 1000000, 10000000 };
     int cnt = (int)(sizeof(sizes) / sizeof(sizes[0]));
 
-    /* Шапка таблицы */
     printf("%-12s | %-14s | %-14s | %-12s | %-8s | %-8s\n",
         "N", "Insert(ms)", "AvgGet(ms)", "Collisions", "Resizes", "Load");
     printf("------------------------------------------------------------------------\n");
 
     for (int i = 0; i < cnt; i++) {
-        /* Для больших N пропускаем если памяти мало */
         ExpResult r = run_one(mode, sizes[i], mode_recommended_lf(mode));
         printf("%-12u | %-14.4f | %-14.6f | %-12llu | %-8llu | %-8.3f\n",
             r.n, r.insert_time_ms, r.avg_get_ms,
@@ -149,11 +123,6 @@ void run_experiments(int mode) {
     }
 }
 
-
-
-/* ─────────────────────────────────────────────
-   Подбор оптимального load_factor
-───────────────────────────────────────────── */
 
 void find_optimal_load_factor(int mode, double step) {
     unsigned int n = 10000;
@@ -173,20 +142,12 @@ void find_optimal_load_factor(int mode, double step) {
         double memory_cost;
 
         if (mode == 1) {
-            /* ──────────────────────────────────────────────────────────
-               Режим 1: Chaining
-               Коллизии не страшны, главное - память и расширения
-               ────────────────────────────────────────────────────────── */
             memory_cost = (1.0 / lf) * 25.0;
             score = r.insert_time_ms +
                 r.resizes * 10.0 +
                 memory_cost;
         }
         else if (mode == 2 || mode == 3) {
-            /* ──────────────────────────────────────────────────────────
-               Режимы 2 и 3: Linear Probe
-               Коллизии страшны (кластеры), время поиска важно
-               ────────────────────────────────────────────────────────── */
             memory_cost = (1.0 / lf) * 15.0;
             score = r.insert_time_ms +
                 r.collisions * 0.02 +
@@ -195,7 +156,6 @@ void find_optimal_load_factor(int mode, double step) {
                 memory_cost;
         }
         else {
-            /* Для других режимов */
             memory_cost = (1.0 / lf) * 20.0;
             score = r.insert_time_ms +
                 r.collisions * 0.01 +

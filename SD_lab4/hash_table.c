@@ -4,9 +4,6 @@
 #include <stdio.h>
 #include <limits.h>
 
-/* ─────────────────────────────────────────────
-   Вспомогательные функции
-───────────────────────────────────────────── */
 
 static char* dup_str(const char* s) {
     if (!s) return NULL;
@@ -30,9 +27,7 @@ const char* collision_method_name(CollisionMethod m) {
     return "unknown";
 }
 
-/* ─────────────────────────────────────────────
-   Создание / уничтожение
-───────────────────────────────────────────── */
+
 
 HTable* ht_create(HTableConfig cfg) {
     HTable* ht = calloc(1, sizeof(HTable));
@@ -244,12 +239,9 @@ int ht_put(HTable* ht, const char* key, const char* str_val, int int_val) {
     }
     return 0;
 }
-/* ─────────────────────────────────────────────
-   GET
-───────────────────────────────────────────── */
 
 int ht_get(HTable* ht, const char* key, char** str_out, int* int_out) {
-    unsigned int base = bucket(ht, key);  // ← ВЫНЕСЛИ ОДИН РАЗ
+    unsigned int base = bucket(ht, key); 
 
     if (ht->cfg.collision == COLLISION_CHAINING) {
         ChainNode* node = ht->chains[base];
@@ -267,9 +259,9 @@ int ht_get(HTable* ht, const char* key, char** str_out, int* int_out) {
     for (unsigned int i = 0; i < ht->capacity; i++) {
         unsigned int idx;
         if (ht->cfg.collision == COLLISION_LINEAR_PROBE)
-            idx = (base + i) % ht->capacity;      // ← ИСПРАВЛЕНО
+            idx = (base + i) % ht->capacity;
         else
-            idx = (base + i * i) % ht->capacity;  // ← ИСПРАВЛЕНО
+            idx = (base + i * i) % ht->capacity;
 
         if (ht->slots[idx].state == SLOT_EMPTY)    return 0;
         if (ht->slots[idx].state == SLOT_DELETED)  continue;
@@ -282,12 +274,9 @@ int ht_get(HTable* ht, const char* key, char** str_out, int* int_out) {
     return 0;
 }
 
-/* ─────────────────────────────────────────────
-   DEL
-───────────────────────────────────────────── */
 
 int ht_del(HTable* ht, const char* key, char** str_out, int* int_out) {
-    unsigned int base = bucket(ht, key);  // ← ВЫНЕСЛИ ОДИН РАЗ
+    unsigned int base = bucket(ht, key);
 
     if (ht->cfg.collision == COLLISION_CHAINING) {
         ChainNode** pp = &ht->chains[base];
@@ -311,9 +300,9 @@ int ht_del(HTable* ht, const char* key, char** str_out, int* int_out) {
     for (unsigned int i = 0; i < ht->capacity; i++) {
         unsigned int idx;
         if (ht->cfg.collision == COLLISION_LINEAR_PROBE)
-            idx = (base + i) % ht->capacity;      // ← ИСПРАВЛЕНО
+            idx = (base + i) % ht->capacity;
         else
-            idx = (base + i * i) % ht->capacity;  // ← ИСПРАВЛЕНО
+            idx = (base + i * i) % ht->capacity;
 
         if (ht->slots[idx].state == SLOT_EMPTY)    return 0;
         if (ht->slots[idx].state == SLOT_DELETED)  continue;
@@ -322,8 +311,8 @@ int ht_del(HTable* ht, const char* key, char** str_out, int* int_out) {
             if (int_out) *int_out = ht->slots[idx].int_val;
             free(ht->slots[idx].key);
             free(ht->slots[idx].str_val);
-            ht->slots[idx].key = NULL;      // ← ДОБАВИТЬ
-            ht->slots[idx].str_val = NULL;  // ← ДОБАВИТЬ
+            ht->slots[idx].key = NULL; 
+            ht->slots[idx].str_val = NULL;
             ht->slots[idx].state = SLOT_DELETED;
             ht->size--;
             return 1;
@@ -332,9 +321,7 @@ int ht_del(HTable* ht, const char* key, char** str_out, int* int_out) {
     return 0;
 }
 
-/* ─────────────────────────────────────────────
-   LIST
-───────────────────────────────────────────── */
+
 
 void ht_list(const HTable* ht, unsigned int num) {
     if (num == 0 || num > ht->capacity) num = ht->capacity;
@@ -392,9 +379,6 @@ void ht_list(const HTable* ht, unsigned int num) {
     printf("========================\n");
 }
 
-/* ─────────────────────────────────────────────
-   Утилиты
-───────────────────────────────────────────── */
 
 double ht_load(const HTable* ht) {
     return (double)ht->size / (double)ht->capacity;

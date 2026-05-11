@@ -1,10 +1,6 @@
 ﻿#include "hash_functions.h"
 #include <string.h>
 
-/* ─────────────────────────────────────────────
-   Основные хэш-функции (приложение А)
-───────────────────────────────────────────── */
-
 unsigned int SDBMHash(const char* str, unsigned int length) {
     unsigned int hash = 0;
     for (unsigned int i = 0; i < length; str++, i++) {
@@ -31,11 +27,6 @@ unsigned int adler32(const char* str, unsigned int length) {
     return (s2 << 16) | s1;
 }
 
-/* ─────────────────────────────────────────────
-   Дополнительные хэш-функции
-───────────────────────────────────────────── */
-
-/* FNV-1a (Fowler–Noll–Vo) */
 unsigned int fnv1a(const char* str, unsigned int length) {
     unsigned int hash = 2166136261u;
     for (unsigned int i = 0; i < length; str++, i++) {
@@ -45,7 +36,6 @@ unsigned int fnv1a(const char* str, unsigned int length) {
     return hash;
 }
 
-/* MurmurHash3 (упрощённая 32-битная версия) */
 unsigned int murmur3(const char* str, unsigned int length) {
     unsigned int h = 0xdeadbeef;
     unsigned int c1 = 0xcc9e2d51u;
@@ -56,7 +46,6 @@ unsigned int murmur3(const char* str, unsigned int length) {
 
     for (unsigned int i = 0; i < nblocks; i++) {
         unsigned int k;
-        /* Читаем 4 байта little-endian */
         k = (unsigned int)data[i * 4 + 0];
         k |= (unsigned int)data[i * 4 + 1] << 8;
         k |= (unsigned int)data[i * 4 + 2] << 16;
@@ -71,12 +60,11 @@ unsigned int murmur3(const char* str, unsigned int length) {
         h = h * 5 + 0xe6546b64u;
     }
 
-    /* Хвост */
     const unsigned char* tail = data + nblocks * 4;
     unsigned int k = 0;
     switch (length & 3) {
-    case 3: k ^= (unsigned int)tail[2] << 16; /* fall through */
-    case 2: k ^= (unsigned int)tail[1] << 8;  /* fall through */
+    case 3: k ^= (unsigned int)tail[2] << 16;    
+    case 2: k ^= (unsigned int)tail[1] << 8;     
     case 1: k ^= (unsigned int)tail[0];
         k *= c1;
         k = (k << 15) | (k >> 17);
@@ -84,7 +72,6 @@ unsigned int murmur3(const char* str, unsigned int length) {
         h ^= k;
     }
 
-    /* Финализация */
     h ^= length;
     h ^= h >> 16;
     h *= 0x85ebca6bu;
@@ -95,9 +82,6 @@ unsigned int murmur3(const char* str, unsigned int length) {
     return h;
 }
 
-/* ─────────────────────────────────────────────
-   Имена функций для вывода
-───────────────────────────────────────────── */
 const char* hash_func_name(HashFunc fn) {
     if (fn == SDBMHash) return "SDBMHash";
     if (fn == djb2)     return "djb2";

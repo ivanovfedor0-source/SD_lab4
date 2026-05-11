@@ -3,15 +3,10 @@
 #include <stdlib.h>
 #include <string.h>
 #include <time.h>
-//test comment
 #include "hash_table.h"
 #include "modes.h"
 #include "experiments.h"
 #include <locale.h>
-
-/* ─────────────────────────────────────────────
-   Вспомогательные функции
-───────────────────────────────────────────── */
 
 static void trim_newline(char* s) {
     char* p = strchr(s, '\n');
@@ -47,17 +42,10 @@ static void print_value(const HTable* ht, const char* str_val, int int_val) {
         printf("%d\n", int_val);
 }
 
-/* ─────────────────────────────────────────────
-   Парсинг команды put: поддерживает значения
-   со встроенными пробелами (берём всё после
-   второго пробела).
-───────────────────────────────────────────── */
 static int parse_put(const char* line, char* key, char* val, int val_is_int, int* ival) {
-    /* Пропускаем "put " */
     const char* p = line + 4;
     while (*p == ' ') p++;
 
-    /* Читаем ключ до пробела */
     const char* kstart = p;
     while (*p && *p != ' ') p++;
     if (p == kstart) return 0;
@@ -65,7 +53,6 @@ static int parse_put(const char* line, char* key, char* val, int val_is_int, int
     strncpy(key, kstart, klen);
     key[klen] = '\0';
 
-    /* Пропускаем пробелы */
     while (*p == ' ') p++;
     if (!*p) return 0;
 
@@ -79,10 +66,6 @@ static int parse_put(const char* line, char* key, char* val, int val_is_int, int
     }
     return 1;
 }
-
-/* ─────────────────────────────────────────────
-   main
-───────────────────────────────────────────── */
 
 int main(void) {
     setlocale(LC_ALL, "Russian");
@@ -106,19 +89,16 @@ int main(void) {
         trim_newline(line);
         if (line[0] == '\0') continue;
 
-        /* ── quit / exit ── */
         if (strcmp(line, "quit") == 0 || strcmp(line, "exit") == 0) {
             printf("Выход.\n");
             break;
         }
 
-        /* ── help ── */
         if (strcmp(line, "help") == 0) {
             print_help();
             continue;
         }
 
-        /* ── mode <n> ── */
         if (strncmp(line, "mode ", 5) == 0) {
             int m = atoi(line + 5);
             if (m < 1 || m > MODE_COUNT) {
@@ -134,7 +114,6 @@ int main(void) {
             continue;
         }
 
-        /* ── lf <value> ── */
         if (strncmp(line, "lf ", 3) == 0) {
             double lf = atof(line + 3);
             if (lf <= 0.0 || lf >= 1.0) {
@@ -147,7 +126,6 @@ int main(void) {
             continue;
         }
 
-        /* ── auto_lf ── */
         if (strcmp(line, "auto_lf") == 0) {
             double lf = auto_load_factor();
             ht->cfg.load_factor = lf;
@@ -155,13 +133,11 @@ int main(void) {
             continue;
         }
 
-        /* ── hw ── */
         if (strcmp(line, "hw") == 0) {
             print_hw_info();
             continue;
         }
 
-        /* ── put key val ── */
         if (strncmp(line, "put ", 4) == 0) {
             char key[256] = { 0 };
             char val[256] = { 0 };
@@ -179,7 +155,6 @@ int main(void) {
             continue;
         }
 
-        /* ── get key ── */
         if (strncmp(line, "get ", 4) == 0) {
             const char* key = line + 4;
             char* sv = NULL;
@@ -191,7 +166,6 @@ int main(void) {
             continue;
         }
 
-        /* ── del key ── */
         if (strncmp(line, "del ", 4) == 0) {
             const char* key = line + 4;
             char* sv = NULL;
@@ -206,7 +180,6 @@ int main(void) {
             continue;
         }
 
-        /* ── list [num] ── */
         if (strncmp(line, "list", 4) == 0) {
             unsigned int num = 50;
             if (strlen(line) > 5) num = (unsigned int)atoi(line + 5);
@@ -214,7 +187,6 @@ int main(void) {
             continue;
         }
 
-        /* ── load ── */
         if (strcmp(line, "load") == 0) {
             double current_load = ht_load(ht);
             double threshold_load = ht->cfg.load_factor;
@@ -227,7 +199,6 @@ int main(void) {
             continue;
         }
 
-        /* ── stats ── */
         if (strcmp(line, "stats") == 0) {
             printf("size=%u  capacity=%u  load=%.4f\n",
                 ht->size, ht->capacity, ht_load(ht));
@@ -236,7 +207,6 @@ int main(void) {
             continue;
         }
 
-        /* ── exp [mode] ── */
         if (strncmp(line, "exp", 3) == 0) {
             int m = cur_mode;
             if (strlen(line) > 4) m = atoi(line + 4);
@@ -246,7 +216,6 @@ int main(void) {
             continue;
         }
 
-        /* ── optlf [mode] ── */
         if (strncmp(line, "optlf", 5) == 0) {
             int m = cur_mode;
             if (strlen(line) > 6) m = atoi(line + 6);
