@@ -6,14 +6,8 @@
 #include <stdlib.h>
 #include <string.h>
 #include <time.h>
-
-#ifdef _WIN32
 #include <windows.h>
 #include <sysinfoapi.h>
-#else
-#include <sys/sysinfo.h>
-#include <unistd.h>
-#endif
 
 static char* rand_key(char* buf, int len) {
     static const char alphabet[] = "abcdefghijklmnopqrstuvwxyz0123456789";
@@ -24,7 +18,6 @@ static char* rand_key(char* buf, int len) {
 }
 
 static double clock_ms(void) {
-#ifdef _WIN32
     static LARGE_INTEGER frequency;
     static int init = 0;
     if (!init) {
@@ -34,20 +27,10 @@ static double clock_ms(void) {
     LARGE_INTEGER count;
     QueryPerformanceCounter(&count);
     return (count.QuadPart * 1000.0) / frequency.QuadPart;
-#else
-    struct timespec ts;
-#ifdef _POSIX_MONOTONIC_CLOCK
-    clock_gettime(CLOCK_MONOTONIC, &ts);
-#else
-    clock_gettime(CLOCK_REALTIME, &ts);
-#endif
-    return ts.tv_sec * 1000.0 + ts.tv_nsec / 1e6;
-#endif
 }
 
 static ExpResult run_one(int mode, unsigned int n, double lf) {
     ExpResult res;
-
     memset(&res, 0, sizeof(res));
     res.n = n;
 
@@ -58,18 +41,16 @@ static ExpResult run_one(int mode, unsigned int n, double lf) {
         fprintf(stderr, "Failed to create hash table\n");
         return res;
     }
+
     char** keys = (char**)malloc(n * sizeof(char*));
     if (!keys) return res;
 
     char buf[32];
     for (unsigned int i = 0; i < n; i++) {
         rand_key(buf, 12);
-#ifdef _WIN32
         keys[i] = _strdup(buf);
-#else
-        keys[i] = strdup(buf);
-#endif
     }
+
     ht_reset_stats(ht);
     double t0 = clock_ms();
     for (unsigned int i = 0; i < n; i++) {
@@ -83,6 +64,7 @@ static ExpResult run_one(int mode, unsigned int n, double lf) {
     res.collisions = ht->collisions;
     res.resizes = ht->resizes;
     res.final_load = ht_load(ht);
+
     unsigned int sample = (n < 100) ? n : 100;
     double get_total = 0.0;
     for (unsigned int i = 0; i < sample; i++) {
@@ -123,17 +105,18 @@ void run_experiments(int mode) {
     }
 }
 
-
 void find_optimal_load_factor(int mode, double step) {
     unsigned int n = 10000;
     printf("\n== Optimal load_factor search for mode %d (n=%u, step=%.2f) ==\n",
         mode, n, step);
-    printf("%-6s | %-10s | %-12s | %-8s | %-12s | %-10s | %-10s | %-10s\n",
-        "LF", "Insert(ms)", "Collisions", "Resizes", "AvgGet(ms)", "MemPenalty", "CollScore", "TotalScore");
+    printf("%-6s | %-10s | %-12s | %-8s | %-12s | %-10s | %-10s\n",
+        "LF", "Insert(ms)", "Collisions", "Resizes", "AvgGet(ms)", "MemPenalty", "TotalScore");
     printf("----------------------------------------------------------------------------------------------------------\n");
 
     double best_score = 1e18;
     double best_lf = 0.75;
+    ExpResult best_r;
+    memset(&best_r, 0, sizeof(best_r));
 
     for (double lf = 0.1; lf <= 0.95; lf += step) {
         ExpResult r = run_one(mode, n, lf);
@@ -167,6 +150,7 @@ void find_optimal_load_factor(int mode, double step) {
         if (score < best_score) {
             best_score = score;
             best_lf = lf;
+            best_r = r;
         }
 
         printf("%-6.2f | %-10.4f | %-12llu | %-8llu | %-12.6f | %-12.2f | %-10.2f\n",
@@ -180,18 +164,18 @@ void find_optimal_load_factor(int mode, double step) {
     printf("\n");
     printf("==========================================================================================================\n");
     printf("=> Recommended load_factor = %.2f\n", best_lf);
-    printf("   Insert time: %.4f ms, Collisions: %.0f, Resizes: %.0f, AvgGet: %.6f ms\n",
-        mode, best_lf, best_score);
+    printf("   Insert time: %.4f ms, Collisions: %llu, Resizes: %llu, AvgGet: %.6f ms\n",
+        best_r.insert_time_ms,
+        (unsigned long long)best_r.collisions,
+        (unsigned long long)best_r.resizes,
+        best_r.avg_get_ms);
     printf("   Score = %.2f\n", best_score);
     printf("==========================================================================================================\n");
 }
 
-
 double auto_load_factor(void) {
     unsigned long total_mb = 1024;
     long nprocs = 4;
-
-#ifdef _WIN32
 
     MEMORYSTATUSEX memInfo;
     memInfo.dwLength = sizeof(MEMORYSTATUSEX);
@@ -199,35 +183,23 @@ double auto_load_factor(void) {
         total_mb = (unsigned long)(memInfo.ullTotalPhys / (1024 * 1024));
     }
 
-
     SYSTEM_INFO sysInfo;
     GetSystemInfo(&sysInfo);
     nprocs = (long)sysInfo.dwNumberOfProcessors;
-#else
-
-    long pages = sysconf(_SC_PHYS_PAGES);
-    long page_size = sysconf(_SC_PAGE_SIZE);
-    if (pages > 0 && page_size > 0) {
-        total_mb = (unsigned long)((pages * page_size) / (1024 * 1024));
-    }
-
-    nprocs = sysconf(_SC_NPROCESSORS_ONLN);
-    if (nprocs <= 0) nprocs = 4;
-#endif
 
     double lf = 0.75;
 
     if (total_mb < 512) {
-        lf = 0.50; 
+        lf = 0.50;
     }
     else if (total_mb < 2048) {
-        lf = 0.65; 
+        lf = 0.65;
     }
     else if (total_mb > 8192) {
-        lf = 0.85; 
+        lf = 0.85;
     }
     else {
-        lf = 0.75; 
+        lf = 0.75;
     }
 
     if (nprocs >= 16) {
@@ -246,11 +218,9 @@ double auto_load_factor(void) {
     if (total_mb < 2048 && lf > 0.75) {
         lf = 0.75;
     }
-
     if (total_mb > 8192 && lf < 0.75) {
         lf = 0.75;
     }
-
     if (lf > 0.90) lf = 0.90;
 
     printf("[Auto LF] RAM: %lu MB, CPU cores: %ld -> load_factor = %.2f\n",
@@ -262,7 +232,6 @@ double auto_load_factor(void) {
 void print_hw_info(void) {
     printf("=== Hardware info ===\n");
 
-#ifdef _WIN32
     MEMORYSTATUSEX memInfo;
     memInfo.dwLength = sizeof(MEMORYSTATUSEX);
     if (GlobalMemoryStatusEx(&memInfo)) {
@@ -271,28 +240,10 @@ void print_hw_info(void) {
         printf("  Total RAM : %lu MB\n", total_mb);
         printf("  Free  RAM : %lu MB\n", free_mb);
     }
+
     SYSTEM_INFO sysInfo;
     GetSystemInfo(&sysInfo);
     printf("  Processors: %u\n", sysInfo.dwNumberOfProcessors);
-#else
-    long pages = sysconf(_SC_PHYS_PAGES);
-    long page_size = sysconf(_SC_PAGE_SIZE);
-    if (pages > 0 && page_size > 0) {
-        unsigned long total_mb = (unsigned long)((pages * page_size) / (1024 * 1024));
-        printf("  Total RAM : %lu MB\n", total_mb);
-    }
-
-    long pages_free = sysconf(_SC_AVPHYS_PAGES);
-    if (pages_free > 0 && page_size > 0) {
-        unsigned long free_mb = (unsigned long)((pages_free * page_size) / (1024 * 1024));
-        printf("  Free  RAM : %lu MB\n", free_mb);
-    }
-
-    long nprocs = sysconf(_SC_NPROCESSORS_ONLN);
-    if (nprocs > 0) {
-        printf("  Processors: %ld\n", nprocs);
-    }
-#endif
 
     printf("  Auto load_factor => %.2f\n", auto_load_factor());
     printf("===============================\n");
